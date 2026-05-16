@@ -1,785 +1,862 @@
-import asyncio
 import json
 import os
-from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler
+from datetime import datetime
+from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram.ext import (
+    Application, CommandHandler, MessageHandler, CallbackQueryHandler,
+    filters, ContextTypes, ConversationHandler
+)
 
-BOT_TOKEN = "8838090259:AAFMff5XZkaJgNQ3Q-_Akv1aVwwHbPUXhcw"
-ADMIN_ID = 6598665549
+# ═══════════════════════════════════════
+#  КОНФИГ
+# ═══════════════════════════════════════
+BOT_TOKEN   = "8838090259:AAFMff5XZkaJgNQ3Q-_Akv1aVwwHbPUXhcw"
+ADMIN_ID    = 6598665549
+ORDERS_FILE = "orders.json"
 
 PRICES = {
     "👕 Футболка": 150,
-    "🧥 Худи": 280,
+    "🧥 Худи":     280,
 }
 EXTRA_CUSTOM = 20
 
 FIGHTERS = {
-    "🦅 Хабиб Нурмагомедов": {
-        "quotes": [
-            "I am not in this sport to make friends",
-            "Let's go champ · The Eagle",
-            "29-0 · Undefeated · Retired",
-            "Alhamdulillah · The Eagle",
-        ]
-    },
-    "🍀 Конор МакГрегор": {
-        "quotes": [
-            "We're not here to take part, we're here to take over",
-            "The Notorious · THE ONE THE ONLY",
-            "I am the face of this company",
-            "Precision beats power · timing beats speed",
-        ]
-    },
-    "⚡ Забит Магомедшарипов": {
-        "quotes": [
-            "Zabit Magomedsharipov · The Stylebender of Eagles",
-            "Born in Dagestan · Built for greatness",
-            "Zabit · The Artist of MMA",
-        ]
-    },
-    "👑 Ислам Махачев": {
-        "quotes": [
-            "Islam Makhachev · The Champion",
-            "Dagestan · Never stops",
-            "Islam · The New Era",
-        ]
-    },
-    "🐉 Арман Царукян": {
-        "quotes": [
-            "Arman Tsarukyan · The Armenian Sniper",
-            "Built different · Fighting for glory",
-            "Tsarukyan · The Rise",
-        ]
-    },
-    "✏️ Свой вариант бойца (+20 сомони)": {
-        "quotes": []
-    },
+    "🦅 Хабиб Нурмагомедов": [
+        "I am not in this sport to make friends",
+        "Занимайся, делай дело — и Всевышний даст всё",
+        "Деньги приходят и уходят, а честь остаётся",
+        "Alhamdulillah · The Eagle Has Landed",
+    ],
+    "🍀 Конор МакГрегор": [
+        "Мы здесь не для участия — мы здесь, чтобы захватить всё",
+        "Таланта не существует. Есть только одержимость",
+        "Победители думают о победе. Проигравшие — о победителях",
+        "Двойной чемпион делает всё, что хочет!",
+    ],
+    "⚡ Забит Магомедшарипов": [
+        "The Stylebender of Eagles",
+        "Born in Dagestan · Built for greatness",
+        "Zabit · The Artist of MMA",
+    ],
+    "👑 Ислам Махачев": [
+        "Islam Makhachev · The Champion",
+        "Dagestan · Never stops",
+        "The New Era of MMA",
+        "Makhachev · The Future",
+    ],
+    "🐉 Арман Царукян": [
+        "The Armenian Sniper",
+        "Built different · Fighting for glory",
+        "Tsarukyan · The Rise",
+    ],
+    "✏️ Свой боец  (+20 сом)": [],
 }
 
-PRINT_CATEGORIES = {
-    "🥊 Спортсмен / Боец": "Хабиб, МакГрегор, Забит...",
-    "👫 Парный принт": "Ваши фото — идеальный подарок",
-    "👤 Портрет": "Друг, семья, кумир",
-    "✍️ Только надпись": "Имя, цитата, дата",
-    "🖼 Своё фото": "Любое фото — мы сделаем принт",
+PRINT_TYPES = [
+    "🥊 Спортсмен / Боец",
+    "👫 Парный принт",
+    "👤 Портрет",
+    "✍️ Только надпись",
+    "🖼 Своё фото",
+]
+
+SIZES = ["S", "M", "L", "XL", "XXL"]
+
+ORDER_STATUSES = {
+    "new":        "🆕 Новый",
+    "confirmed":  "✅ Принят",
+    "production": "🔨 В работе",
+    "ready":      "📦 Готов",
+    "delivered":  "🚀 Доставлен",
+    "cancelled":  "❌ Отменён",
 }
 
-orders = []
-ORDER_COUNTER = 1
+STATUS_NOTIFY = {
+    "confirmed":  "✅ Заказ #{id} принят!\n\nСкоро свяжемся для согласования эскиза 🖤",
+    "production": "🔨 Заказ #{id} в работе!\n\nПечатаем твой принт, скоро будет готово.",
+    "ready":      "📦 Заказ #{id} готов!\n\nСвяжемся насчёт доставки.",
+    "delivered":  "🚀 Заказ #{id} доставлен!\n\nСпасибо что выбрал PATHA 🖤",
+    "cancelled":  "❌ Заказ #{id} отменён.\n\nЕсли есть вопросы — напиши нам.",
+}
 
-# Сохранение и загрузка телефонов клиентов
-USER_PHONES_FILE = "/Users/air/patha/user_phones.json"
+# ═══════════════════════════════════════
+#  СОСТОЯНИЯ
+# ═══════════════════════════════════════
+(
+    WELCOME, PRODUCT, SIZE, PRINT_TYPE,
+    FIGHTER_CHOICE, CUSTOM_FIGHTER_NAME,
+    QUOTE_CHOICE, CUSTOM_TEXT,
+    PRINT_PHOTO, PRINT_TEXT,
+    PHONE, CONFIRM,
+    EDIT_MENU, EDIT_SIZE, EDIT_TEXT, EDIT_PHONE,
+) = range(16)
 
-def load_user_phones():
-    if os.path.exists(USER_PHONES_FILE):
+# ═══════════════════════════════════════
+#  ХРАНЕНИЕ ЗАКАЗОВ (JSON)
+# ═══════════════════════════════════════
+def _load() -> dict:
+    if os.path.exists(ORDERS_FILE):
         try:
-            with open(USER_PHONES_FILE, 'r') as f:
+            with open(ORDERS_FILE, "r", encoding="utf-8") as f:
                 return json.load(f)
-        except:
-            return {}
-    return {}
+        except Exception:
+            pass
+    return {"next_id": 1, "orders": {}}
 
-def save_user_phones(phones):
-    with open(USER_PHONES_FILE, 'w') as f:
-        json.dump(phones, f, indent=2)
+def _save(data: dict):
+    with open(ORDERS_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
 
-user_phones = load_user_phones()
+def db_add(order: dict) -> int:
+    data = _load()
+    oid  = data["next_id"]
+    order.update({"id": oid, "status": "new",
+                  "created": datetime.now().strftime("%d.%m.%Y %H:%M")})
+    data["orders"][str(oid)] = order
+    data["next_id"] = oid + 1
+    _save(data)
+    return oid
 
-(WELCOME, PRODUCT, SIZE, PRINT_TYPE,
- FIGHTER_CHOICE, CUSTOM_FIGHTER_NAME,
- QUOTE_CHOICE, CUSTOM_TEXT,
- PRINT_PHOTO, PRINT_TEXT,
- PHONE, CONFIRM) = range(12)
+def db_get(oid: int) -> dict | None:
+    return _load()["orders"].get(str(oid))
 
-(EDIT_MENU, EDIT_SIZE, EDIT_TEXT, EDIT_PHONE, EDIT_CONFIRM) = range(12, 17)
+def db_update(oid: int, **kwargs):
+    data = _load()
+    if str(oid) in data["orders"]:
+        data["orders"][str(oid)].update(kwargs)
+        _save(data)
 
+def db_all() -> list:
+    return list(_load()["orders"].values())
 
-def header(title):
-    return f"╔═══ {title} ═══╗\n\n"
+def db_last_for_user(user_id: int) -> dict | None:
+    orders = [o for o in db_all() if o.get("user_id") == user_id]
+    return orders[-1] if orders else None
 
+# ═══════════════════════════════════════
+#  UI HELPERS
+# ═══════════════════════════════════════
+def kb(*rows, nav=False):
+    btn = [list(r) for r in rows]
+    if nav:
+        btn.append(["⬅️ Назад", "🏠 Меню"])
+    return ReplyKeyboardMarkup(btn, resize_keyboard=True)
 
-def find_last_order_for_user(user_id):
-    for o in reversed(orders):
-        if o['user_id'] == user_id:
-            return o
-    return None
-
-
-async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Показать главное меню"""
-    await update.message.reply_text(
-        header("PATHA МЕНЮ") +
-        "🎨 ИМЕННОЙ ПРИНТ · ДУШАНБЕ 🇹🇯\n\n"
-        "Выбери действие:",
-        reply_markup=ReplyKeyboardMarkup(
-            [["🖤 Новый заказ"], ["📸 Примеры", "☎️ Контакты"], ["📦 Мой заказ", "✏️ Изменить"]],
-            resize_keyboard=True
-        )
+def main_kb():
+    return kb(
+        ["🛍 Оформить заказ"],
+        ["📸 Примеры работ", "📞 Контакты"],
+        ["📦 Мой заказ"],
     )
 
+def msg_step(n: int, title: str, body: str = "") -> str:
+    dots = "●" * n + "○" * (6 - n)
+    return (
+        f"[ {dots} ]  Шаг {n} из 6\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"{title}\n"
+        + (f"\n{body}" if body else "")
+    )
 
+def fmt_order(o: dict, admin=False) -> str:
+    athlete = o.get("athlete", "")
+    extra   = o.get("extra", 0)
+    photo   = "✅ Есть" if o.get("photo_id") else "❌ Нет"
+    status  = ORDER_STATUSES.get(o.get("status", "new"), "🆕")
+    total   = o["price"] + extra
+    icon    = "👕" if "Футболка" in o["product"] else "🧥"
+
+    lines = [f"📋  ЗАКАЗ #{o['id']}  ·  {status}",
+             "━━━━━━━━━━━━━━━━━━━━"]
+    if admin:
+        lines += [
+            f"👤  {o.get('name','—')}  {o.get('username','')}",
+            f"📱  {o.get('phone','—')}",
+            f"🕐  {o.get('created','—')}",
+            "┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄",
+        ]
+    lines += [
+        f"{icon}  {o['product']}  ·  {o['size']}",
+        f"🎨  {o['print_type']}",
+    ]
+    if athlete and athlete not in ("—", ""):
+        lines.append(f"🥊  {athlete}")
+    lines += [
+        f"📸  Фото: {photo}",
+        f"✍️   {o.get('print_text','—')}",
+        "┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄",
+        f"💰  Базовая:  {o['price']} сом",
+    ]
+    if extra:
+        lines.append(f"➕  Доп.:     +{extra} сом")
+    lines += [f"💵  ИТОГО:    {total} сом",
+              "━━━━━━━━━━━━━━━━━━━━"]
+    if admin:
+        lines.append(f"💬  tg://user?id={o.get('user_id','')}")
+    return "\n".join(lines)
+
+def admin_kb(oid: int, status: str, user_id: int) -> InlineKeyboardMarkup:
+    flow   = {"new":"confirmed","confirmed":"production","production":"ready","ready":"delivered"}
+    labels = {"confirmed":"✅ Принять","production":"🔨 В работу","ready":"📦 Готов","delivered":"🚀 Доставлен"}
+    rows   = []
+    if status in flow:
+        nxt = flow[status]
+        rows.append([
+            InlineKeyboardButton(labels[nxt], callback_data=f"s:{oid}:{nxt}"),
+            InlineKeyboardButton("❌ Отменить", callback_data=f"s:{oid}:cancelled"),
+        ])
+    rows.append([InlineKeyboardButton("💬 Написать клиенту", url=f"tg://user?id={user_id}")])
+    return InlineKeyboardMarkup(rows)
+
+# ═══════════════════════════════════════
+#  /start и главное меню
+# ═══════════════════════════════════════
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
-    await show_main_menu(update, context)
+    await update.message.reply_text(
+        "🖤  P A T H A\n"
+        "┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄\n"
+        "Именной принт · Душанбе 🇹🇯\n\n"
+        "👕  Футболка  —  от 150 сом\n"
+        "🧥  Худи       —  от 280 сом\n"
+        "┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄\n"
+        "Твоя история на твоей одежде ✊",
+        reply_markup=main_kb()
+    )
     return WELCOME
-
 
 async def welcome_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text
+    t = update.message.text
 
-    if text == "📦 Мой заказ" or text == "/myorder":
-        return await myorder_command(update, context)
-
-    if text == "✏️ Изменить" or text == "/edit":
-        return await edit_entry(update, context)
-
-    if text == "📸 Примеры":
+    if t == "📸 Примеры работ":
         await update.message.reply_text(
-            header("НАШИ РАБОТЫ") +
-            "  🥊  Хабиб · THE EAGLE\n"
-            "  🥊  МакГрегор · THE NOTORIOUS\n"
-            "  🥊  Забит Магомедшарипов\n"
-            "  🥊  Ислам Махачев\n"
-            "  👫  Парные худи с фото\n"
-            "  👤  Портреты на заказ\n\n"
-            "📲 Instagram: @patha.tj",
-            reply_markup=ReplyKeyboardMarkup(
-                [["🖤 Новый заказ"], ["☎️ Контакты"]],
-                resize_keyboard=True
-            )
+            "📸  НАШИ РАБОТЫ\n"
+            "━━━━━━━━━━━━━━━━━━━━\n\n"
+            "🥊  Хабиб · THE EAGLE\n"
+            "🥊  МакГрегор · THE NOTORIOUS\n"
+            "🥊  Забит · The Artist of MMA\n"
+            "🥊  Ислам Махачев · Champion\n"
+            "👫  Парные худи с фото\n"
+            "👤  Портреты на заказ\n\n"
+            "┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄\n"
+            "📲  Instagram: @patha.tj",
+            reply_markup=main_kb()
         )
         return WELCOME
 
-    if text == "☎️ Контакты":
+    if t == "📞 Контакты":
         await update.message.reply_text(
-            header("КОНТАКТЫ") +
-            "📲 Instagram: @patha.tj\n"
-            "💬 Telegram: напиши в чат\n\n"
-            "Или оформи заказ — мы сами напишем!",
-            reply_markup=ReplyKeyboardMarkup(
-                [["🖤 Новый заказ"]],
-                resize_keyboard=True
-            )
+            "📞  КОНТАКТЫ\n"
+            "━━━━━━━━━━━━━━━━━━━━\n\n"
+            "📸  Instagram · @patha.tj\n"
+            "✈️   Telegram  · @patha_tj\n\n"
+            "Или оформи заказ — мы сами\n"
+            "свяжемся с тобой 🖤",
+            reply_markup=main_kb()
         )
         return WELCOME
 
-    if text == "🖤 Новый заказ":
-        context.user_data.clear()
-        await update.message.reply_text(
-            header("ШАГ 1 из 6") +
-            "Что заказываешь?\n\n"
-            "👕 Футболка — от 150 сом\n"
-            "🧥 Худи — от 280 сом",
-            reply_markup=ReplyKeyboardMarkup(
-                [["👕 Футболка", "🧥 Худи"], ["🏠 Меню"]],
-                resize_keyboard=True
-            )
-        )
-        return PRODUCT
+    if t == "📦 Мой заказ":
+        return await show_my_order(update, context)
 
-    # Меню по кнопке "Меню"
-    if text == "🏠 Меню":
-        await show_main_menu(update, context)
-        return WELCOME
-
-    await show_main_menu(update, context)
-    return WELCOME
-
-
-async def choose_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text
-    
-    if text == "🏠 Меню":
-        await show_main_menu(update, context)
-        return WELCOME
-    
-    if text not in PRICES:
-        await update.message.reply_text("Выбери товар из кнопок 👇")
-        return PRODUCT
-
-    context.user_data['product'] = text
-    context.user_data['price'] = PRICES[text]
-    context.user_data['extra'] = 0
+    if t in ("🛍 Оформить заказ", "🏠 Меню"):
+        return await ask_product(update, context)
 
     await update.message.reply_text(
-        header("ШАГ 2 из 6") +
-        f"✅ Выбрано: {text}\n💰 Цена: от {PRICES[text]} сом\n\n"
-        "Теперь размер:",
-        reply_markup=ReplyKeyboardMarkup(
-            [["S", "M", "L"], ["XL", "XXL"], ["🏠 Меню"]],
-            resize_keyboard=True
-        )
+        "👋  Привет! Я бот PATHA.\n\nНажми кнопку ниже 👇",
+        reply_markup=main_kb()
+    )
+    return WELCOME
+
+# ═══════════════════════════════════════
+#  ШАГ 1 — ТОВАР
+# ═══════════════════════════════════════
+async def ask_product(update, context):
+    await update.message.reply_text(
+        msg_step(1, "Что заказываешь?",
+                 "👕  Футболка  —  от 150 сом\n"
+                 "🧥  Худи       —  от 280 сом"),
+        reply_markup=kb(["👕 Футболка", "🧥 Худи"], ["🏠 Меню"])
+    )
+    return PRODUCT
+
+async def choose_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    t = update.message.text
+    if t == "🏠 Меню":
+        return await start(update, context)
+    if t not in PRICES:
+        await update.message.reply_text("Выбери из кнопок 👇")
+        return PRODUCT
+    context.user_data.update(product=t, price=PRICES[t], extra=0)
+    return await ask_size(update, context)
+
+# ═══════════════════════════════════════
+#  ШАГ 2 — РАЗМЕР
+# ═══════════════════════════════════════
+async def ask_size(update, context):
+    p = context.user_data["product"]
+    await update.message.reply_text(
+        msg_step(2, "Выбери размер", f"Товар: {p}"),
+        reply_markup=kb(["S", "M", "L"], ["XL", "XXL"], nav=True)
     )
     return SIZE
 
-
 async def choose_size(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    size = update.message.text
-    
-    if size == "🏠 Меню":
-        await show_main_menu(update, context)
-        return WELCOME
-    
-    if size not in ["S", "M", "L", "XL", "XXL"]:
+    t = update.message.text
+    if t == "🏠 Меню":   return await start(update, context)
+    if t == "⬅️ Назад":  return await ask_product(update, context)
+    if t not in SIZES:
         await update.message.reply_text("Выбери размер из кнопок 👇")
         return SIZE
+    context.user_data["size"] = t
+    return await ask_print_type(update, context)
 
-    context.user_data['size'] = size
-    buttons = [[cat] for cat in PRINT_CATEGORIES.keys()]
-
+# ═══════════════════════════════════════
+#  ШАГ 3 — ТИП ПРИНТА
+# ═══════════════════════════════════════
+async def ask_print_type(update, context):
     await update.message.reply_text(
-        header("ШАГ 3 из 6") +
-        f"✅ Размер: {size}\n\n"
-        "Выбери тип принта:",
-        reply_markup=ReplyKeyboardMarkup(buttons + [["🏠 Меню"]], resize_keyboard=True)
+        msg_step(3, "Тип принта",
+                 "🥊  Спортсмен / Боец\n"
+                 "👫  Парный принт\n"
+                 "👤  Портрет\n"
+                 "✍️   Только надпись\n"
+                 "🖼  Своё фото"),
+        reply_markup=kb(*[[t] for t in PRINT_TYPES], nav=True)
     )
     return PRINT_TYPE
 
-
 async def choose_print_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text
-    
-    if text == "🏠 Меню":
-        await show_main_menu(update, context)
-        return WELCOME
-    
-    if text not in PRINT_CATEGORIES:
-        await update.message.reply_text("Выбери тип принта из кнопок 👇")
+    t = update.message.text
+    if t == "🏠 Меню":   return await start(update, context)
+    if t == "⬅️ Назад":  return await ask_size(update, context)
+    if t not in PRINT_TYPES:
+        await update.message.reply_text("Выбери из кнопок 👇")
         return PRINT_TYPE
+    context.user_data.update(print_type=t, athlete_name="")
+    if t == "🥊 Спортсмен / Боец":
+        return await ask_fighter(update, context)
+    if t == "✍️ Только надпись":
+        context.user_data["photo_id"] = None
+        return await ask_print_text(update, context, step=4)
+    return await ask_photo(update, context)
 
-    context.user_data['print_type'] = text
-
-    if text == "🥊 Спортсмен / Боец":
-        buttons = [[name] for name in FIGHTERS.keys()]
-        await update.message.reply_text(
-            header("ШАГ 4 из 6") +
-            "Выбери бойца:",
-            reply_markup=ReplyKeyboardMarkup(buttons + [["🏠 Меню"]], resize_keyboard=True)
-        )
-        return FIGHTER_CHOICE
-
-    if text == "✍️ Только надпись":
-        context.user_data['photo_id'] = None
-        context.user_data['athlete_name'] = ''
-        await update.message.reply_text(
-            header("ШАГ 4 из 6") +
-            "Напиши текст для принта:",
-            reply_markup=ReplyKeyboardRemove()
-        )
-        return PRINT_TEXT
-
-    context.user_data['athlete_name'] = ''
+# ═══════════════════════════════════════
+#  ШАГ 4а — БОЕЦ
+# ═══════════════════════════════════════
+async def ask_fighter(update, context):
     await update.message.reply_text(
-        header("ШАГ 4 из 6") +
-        "Отправь фото для принта (или нажми Без фото)",
-        reply_markup=ReplyKeyboardMarkup(
-            [["⏭ Без фото"], ["🏠 Меню"]], resize_keyboard=True
-        )
+        msg_step(4, "Выбери бойца",
+                 "✏️ Свой боец = доп. +20 сом"),
+        reply_markup=kb(*[[f] for f in FIGHTERS.keys()], nav=True)
     )
-    return PRINT_PHOTO
-
+    return FIGHTER_CHOICE
 
 async def fighter_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text
-    
-    if text == "🏠 Меню":
-        await show_main_menu(update, context)
-        return WELCOME
-
-    if text not in FIGHTERS:
+    t = update.message.text
+    if t == "🏠 Меню":   return await start(update, context)
+    if t == "⬅️ Назад":  return await ask_print_type(update, context)
+    if t not in FIGHTERS:
         await update.message.reply_text("Выбери бойца из кнопок 👇")
         return FIGHTER_CHOICE
-
-    if text == "✏️ Свой вариант бойца (+20 сомони)":
-        context.user_data['extra'] = EXTRA_CUSTOM
+    if t == "✏️ Свой боец  (+20 сом)":
+        context.user_data["extra"] = EXTRA_CUSTOM
         await update.message.reply_text(
-            header("ШАГ 4 из 6") +
-            "Напиши имя бойца:",
-            reply_markup=ReplyKeyboardRemove()
+            "✏️  Напиши имя бойца:\n\n"
+            "⚠️  Доп. плата +20 сом\n"
+            "(поиск фото + оформление дизайна)",
+            reply_markup=kb(["⬅️ Назад"])
         )
         return CUSTOM_FIGHTER_NAME
-
-    context.user_data['athlete_name'] = text
-    context.user_data['extra'] = 0
-    quotes = FIGHTERS[text]["quotes"]
-    buttons = [[q] for q in quotes]
-    buttons.append(["✍️ Своя надпись"])
-    buttons.append(["🤝 Выберёте сами"])
-
-    await update.message.reply_text(
-        header("ШАГ 5 из 6") +
-        f"✅ Боец: {text}\n\n"
-        "Выбери надпись:",
-        reply_markup=ReplyKeyboardMarkup(buttons + [["🏠 Меню"]], resize_keyboard=True)
-    )
-    return QUOTE_CHOICE
-
+    context.user_data.update(athlete_name=t, extra=0)
+    return await ask_quote(update, context)
 
 async def custom_fighter_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    name = update.message.text.strip()
-    context.user_data['athlete_name'] = name
+    t = update.message.text
+    if t == "⬅️ Назад":
+        return await ask_fighter(update, context)
+    context.user_data["athlete_name"] = t.strip()
+    return await ask_quote(update, context)
 
-    buttons = [
-        ["✍️ Своя надпись"],
-        ["🤝 Выберёте сами"],
-        ["🏠 Меню"],
-    ]
+# ═══════════════════════════════════════
+#  ШАГ 5а — ЦИТАТА
+# ═══════════════════════════════════════
+async def ask_quote(update, context):
+    athlete = context.user_data.get("athlete_name", "")
+    quotes  = FIGHTERS.get(athlete, [])
+    q_list  = "\n".join(f"· {q}" for q in quotes) if quotes else "(нет стандартных)"
     await update.message.reply_text(
-        header("ШАГ 5 из 6") +
-        f"✅ Боец: {name}\n💰 Доп. плата: +{EXTRA_CUSTOM} сом\n\n"
-        "Выбери надпись:",
-        reply_markup=ReplyKeyboardMarkup(buttons, resize_keyboard=True)
+        msg_step(5, f"Надпись для принта", f"Боец: {athlete}\n\nГотовые варианты:\n{q_list}"),
+        reply_markup=kb(
+            *[[q] for q in quotes],
+            ["✍️ Своя надпись"],
+            ["🤝 Вы сами подберёте"],
+            nav=True
+        )
     )
     return QUOTE_CHOICE
 
-
 async def quote_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text
-
-    if text == "🏠 Меню":
-        await show_main_menu(update, context)
-        return WELCOME
-
-    if text == "✍️ Своя надпись":
+    t = update.message.text
+    if t == "🏠 Меню":   return await start(update, context)
+    if t == "⬅️ Назад":  return await ask_fighter(update, context)
+    if t == "✍️ Своя надпись":
         await update.message.reply_text(
-            header("ШАГ 5 из 6") +
-            "Напиши надпись:",
-            reply_markup=ReplyKeyboardRemove()
+            "✍️  Напиши свою надпись:\n\nЛюбой текст · имя · цитата · дата",
+            reply_markup=kb(["⬅️ Назад"])
         )
         return CUSTOM_TEXT
-
-    if text == "🤝 Выберёте сами":
-        context.user_data['print_text'] = "🤝 Подберём сами"
-        context.user_data['photo_id'] = None
-        await _ask_phone(update, context)
-        return PHONE
-
-    context.user_data['print_text'] = text
-    context.user_data['photo_id'] = None
-    await _ask_phone(update, context)
-    return PHONE
-
+    if t == "🤝 Вы сами подберёте":
+        context.user_data.update(print_text="🤝 Подберёте сами", photo_id=None)
+        return await ask_phone(update, context)
+    # готовая цитата
+    context.user_data.update(print_text=t, photo_id=None)
+    return await ask_phone(update, context)
 
 async def custom_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['print_text'] = update.message.text.strip()
-    context.user_data['photo_id'] = None
-    await _ask_phone(update, context)
-    return PHONE
+    t = update.message.text
+    if t == "⬅️ Назад":
+        return await ask_quote(update, context)
+    context.user_data.update(print_text=t.strip(), photo_id=None)
+    return await ask_phone(update, context)
 
-
-async def get_print_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.photo:
-        context.user_data['photo_id'] = update.message.photo[-1].file_id
-        await update.message.reply_text(
-            header("ШАГ 5 из 6") +
-            "✅ Фото получено.\n\nНапиши надпись (или напиши: нет):",
-            reply_markup=ReplyKeyboardRemove()
-        )
-        return PRINT_TEXT
-
-    if update.message.text == "⏭ Без фото":
-        context.user_data['photo_id'] = None
-        await update.message.reply_text(
-            header("ШАГ 5 из 6") +
-            "Напиши надпись (или напиши: нет):",
-            reply_markup=ReplyKeyboardRemove()
-        )
-        return PRINT_TEXT
-
+# ═══════════════════════════════════════
+#  ШАГ 4б — ФОТО
+# ═══════════════════════════════════════
+async def ask_photo(update, context):
     await update.message.reply_text(
-        "Отправь фото или нажми кнопку ⏭",
-        reply_markup=ReplyKeyboardMarkup([["⏭ Без фото"]], resize_keyboard=True)
+        msg_step(4, "Отправь фото для принта",
+                 "· Фото человека\n"
+                 "· Совместное фото\n"
+                 "· Любая картинка\n\n"
+                 "Или нажми «Без фото»"),
+        reply_markup=kb(["⏭ Без фото"], nav=True)
     )
     return PRINT_PHOTO
 
+async def get_print_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    t = update.message.text if update.message.text else ""
+    if t == "🏠 Меню":   return await start(update, context)
+    if t == "⬅️ Назад":  return await ask_print_type(update, context)
+    if update.message.photo:
+        context.user_data["photo_id"] = update.message.photo[-1].file_id
+        return await ask_print_text(update, context, step=5)
+    if t == "⏭ Без фото":
+        context.user_data["photo_id"] = None
+        return await ask_print_text(update, context, step=5)
+    await update.message.reply_text(
+        "📸  Отправь фото или нажми «Без фото»",
+        reply_markup=kb(["⏭ Без фото"], nav=True)
+    )
+    return PRINT_PHOTO
+
+async def ask_print_text(update, context, step=5):
+    await update.message.reply_text(
+        msg_step(step, "Надпись для принта",
+                 "Примеры:\n"
+                 "· Имя человека\n"
+                 "· Любимая цитата\n"
+                 "· Дата — 29.10.2022\n\n"
+                 "Нет надписи? Напиши: нет"),
+        reply_markup=kb(["⬅️ Назад"])
+    )
+    return PRINT_TEXT
 
 async def get_print_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text.strip()
-    context.user_data['print_text'] = "—" if text.lower() == "нет" else text
-    await _ask_phone(update, context)
+    t = update.message.text.strip()
+    if t == "⬅️ Назад":
+        return await ask_photo(update, context)
+    context.user_data["print_text"] = "—" if t.lower() == "нет" else t
+    return await ask_phone(update, context)
+
+# ═══════════════════════════════════════
+#  ШАГ 6 — ТЕЛЕФОН
+# ═══════════════════════════════════════
+async def ask_phone(update, context):
+    await update.message.reply_text(
+        msg_step(6, "Твой номер телефона",
+                 "Мы позвоним, сделаем эскиз\n"
+                 "и согласуем с тобой 🖤\n\n"
+                 "Формат: +992XXXXXXXXX"),
+        reply_markup=kb(["⬅️ Назад"])
+    )
     return PHONE
 
-
-async def _ask_phone(update, context):
-    user_id = str(update.message.from_user.id)
-    saved_phone = user_phones.get(user_id, "")
-    
-    if saved_phone:
-        msg = (
-            header("ШАГ 6 из 6") +
-            f"Номер телефона:\n\n"
-            f"☎️ Сохранённый: {saved_phone}\n\n"
-            "Или напиши новый номер:"
-        )
-    else:
-        msg = (
-            header("ШАГ 6 из 6") +
-            "Номер телефона.\nФормат: +992901234567"
-        )
-    
-    await update.message.reply_text(msg, reply_markup=ReplyKeyboardRemove())
-
-
 async def get_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    phone = update.message.text.strip()
-    digits = phone.replace("+", "").replace(" ", "").replace("-", "")
-    
+    t = update.message.text.strip()
+
+    if t == "⬅️ Назад":
+        pt = context.user_data.get("print_type", "")
+        if pt == "🥊 Спортсмен / Боец":
+            return await ask_quote(update, context)
+        elif pt == "✍️ Только надпись":
+            return await ask_print_text(update, context, step=4)
+        else:
+            return await ask_print_text(update, context, step=5)
+
+    digits = t.replace("+","").replace(" ","").replace("-","")
     if not digits.isdigit() or len(digits) < 7:
-        await update.message.reply_text("❌ Номер неверный. Пример: +992901234567")
+        await update.message.reply_text(
+            "⚠️  Неверный формат\n\nПример: +992901234567"
+        )
         return PHONE
 
-    context.user_data['phone'] = phone
-    user_id = str(update.message.from_user.id)
-    user_phones[user_id] = phone
-    save_user_phones(user_phones)
+    context.user_data["phone"] = t
+    return await show_confirm(update, context)
 
-    product    = context.user_data['product']
-    size       = context.user_data['size']
-    print_type = context.user_data['print_type']
-    athlete    = context.user_data.get('athlete_name', '')
-    print_text = context.user_data.get('print_text', '—')
-    has_photo  = "✅" if context.user_data.get('photo_id') else "❌"
-    price      = context.user_data['price']
-    extra      = context.user_data.get('extra', 0)
-    total      = price + extra
+# ═══════════════════════════════════════
+#  ПОДТВЕРЖДЕНИЕ
+# ═══════════════════════════════════════
+async def show_confirm(update, context):
+    ud      = context.user_data
+    extra   = ud.get("extra", 0)
+    total   = ud["price"] + extra
+    photo   = "✅ Есть" if ud.get("photo_id") else "❌ Нет"
+    athlete = ud.get("athlete_name", "")
+    icon    = "👕" if "Футболка" in ud["product"] else "🧥"
 
-    athlete_line = f"👤 Боец: {athlete}\n" if athlete else ""
-    extra_line   = f"💰 Доп: +{extra} сом\n" if extra else ""
-
+    lines = [
+        "📋  ПРОВЕРЬ ЗАКАЗ",
+        "━━━━━━━━━━━━━━━━━━━━",
+        f"{icon}  {ud['product']}  ·  {ud['size']}",
+        f"🎨  {ud['print_type']}",
+    ]
+    if athlete:
+        lines.append(f"🥊  {athlete}")
+    lines += [
+        f"📸  Фото:    {photo}",
+        f"✍️   Надпись: {ud.get('print_text','—')}",
+        f"📱  Тел:     {ud['phone']}",
+        "┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄",
+        f"💰  Цена:    от {ud['price']} сом",
+    ]
+    if extra:
+        lines.append(f"➕  Доп.:    +{extra} сом")
+    lines += [
+        f"💵  ИТОГО:   от {total} сом",
+        "━━━━━━━━━━━━━━━━━━━━",
+        "",
+        "Всё верно?",
+    ]
     await update.message.reply_text(
-        header("ПРОВЕРЬ ЗАКАЗ") +
-        f"👕 {product} · {size}\n"
-        f"📌 Тип: {print_type}\n"
-        f"{athlete_line}"
-        f"🖼 Фото: {has_photo}\n"
-        f"✍️ Надпись: {print_text}\n"
-        f"☎️ Тел: {phone}\n\n"
-        f"💰 Цена: {price} сом\n"
-        f"{extra_line}"
-        f"📊 ИТОГО: {total} сом\n\n"
-        "Всё правильно?",
-        reply_markup=ReplyKeyboardMarkup(
-            [["✅ Заказать", "❌ Отмена"]],
-            resize_keyboard=True
+        "\n".join(lines),
+        reply_markup=kb(
+            ["✅ Оформить заказ"],
+            ["✏️ Изменить параметры"],
+            ["❌ Отменить"],
         )
     )
     return CONFIRM
 
-
 async def confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global ORDER_COUNTER
-    
-    if update.message.text == "✅ Заказать":
-        user = update.message.from_user
-        order_id = ORDER_COUNTER
-        ORDER_COUNTER += 1
-        extra  = context.user_data.get('extra', 0)
-        price  = context.user_data['price']
-        total  = price + extra
+    t = update.message.text
 
-        order = {
-            'id':         order_id,
-            'name':       user.first_name or "—",
-            'username':   f"@{user.username}" if user.username else "—",
-            'user_id':    user.id,
-            'product':    context.user_data['product'],
-            'size':       context.user_data['size'],
-            'print_type': context.user_data['print_type'],
-            'athlete':    context.user_data.get('athlete_name', '—'),
-            'print_text': context.user_data.get('print_text', '—'),
-            'photo_id':   context.user_data.get('photo_id'),
-            'phone':      context.user_data['phone'],
-            'price':      price,
-            'extra':      extra,
-            'total':      total,
-        }
-        orders.append(order)
+    if t == "✏️ Изменить параметры":
+        return await edit_entry(update, context)
 
-        has_photo    = "✅" if order['photo_id'] else "❌"
-        athlete_line = f"👤 Боец: {order['athlete']}\n" if order['athlete'] not in ['—', ''] else ""
-        extra_line   = f"💰 Доп: +{extra} сом\n" if extra else ""
+    if t == "❌ Отменить":
+        context.user_data.clear()
+        await update.message.reply_text("❌  Заказ отменён.", reply_markup=main_kb())
+        return WELCOME
 
-        admin_msg = (
-            f"🔔 НОВЫЙ ЗАКАЗ #{order['id']}\n"
-            f"{'-' * 40}\n"
-            f"👤 Клиент: {order['name']} {order['username']}\n"
-            f"☎️ Тел: {order['phone']}\n\n"
-            f"👕 {order['product']} · {order['size']}\n"
-            f"📌 Тип: {order['print_type']}\n"
-            f"{athlete_line}"
-            f"🖼 Фото: {has_photo}\n"
-            f"✍️ Надпись: {order['print_text']}\n\n"
-            f"💰 Цена: {order['price']} сом\n"
-            f"{extra_line}"
-            f"📊 ИТОГО: {order['total']} сом\n"
-            f"{'-' * 40}\n"
-            f"👤 Профиль: tg://user?id={order['user_id']}"
+    if t != "✅ Оформить заказ":
+        await update.message.reply_text("Выбери действие 👇")
+        return CONFIRM
+
+    user  = update.message.from_user
+    ud    = context.user_data
+    extra = ud.get("extra", 0)
+
+    order = {
+        "name":       user.first_name or "—",
+        "username":   f"@{user.username}" if user.username else "—",
+        "user_id":    user.id,
+        "product":    ud["product"],
+        "size":       ud["size"],
+        "print_type": ud["print_type"],
+        "athlete":    ud.get("athlete_name", ""),
+        "print_text": ud.get("print_text", "—"),
+        "photo_id":   ud.get("photo_id"),
+        "phone":      ud["phone"],
+        "price":      ud["price"],
+        "extra":      extra,
+    }
+    oid   = db_add(order)
+    order = db_get(oid)
+
+    await update.message.reply_text(
+        f"🎉  ЗАКАЗ #{oid} ОФОРМЛЕН!\n"
+        "━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"Мы позвоним на {ud['phone']}\n"
+        "в ближайшее время.\n\n"
+        "Сделаем эскиз → согласуем\n"
+        "Напечатаем → доставим 🖤\n\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "Спасибо что выбрал PATHA!",
+        reply_markup=main_kb()
+    )
+
+    try:
+        await context.bot.send_message(
+            chat_id=ADMIN_ID,
+            text=fmt_order(order, admin=True),
+            reply_markup=admin_kb(oid, "new", user.id)
         )
-        try:
-            await context.bot.send_message(chat_id=ADMIN_ID, text=admin_msg)
-            if order['photo_id']:
-                await context.bot.send_photo(
-                    chat_id=ADMIN_ID,
-                    photo=order['photo_id'],
-                    caption=f"📸 Фото заказа #{order_id}"
-                )
-        except Exception as e:
-            print(f"Ошибка: {e}")
-
-        await update.message.reply_text(
-            header("✅ ЗАКАЗ ПРИНЯТ") +
-            f"Заказ #{order_id} оформлен!\n"
-            f"Мы позвоним по {order['phone']}\n\n"
-            "Спасибо за заказ! 🖤",
-            reply_markup=ReplyKeyboardMarkup(
-                [["🖤 Новый заказ"], ["📦 Мой заказ", "✏️ Изменить"]],
-                resize_keyboard=True
+        if order.get("photo_id"):
+            await context.bot.send_photo(
+                chat_id=ADMIN_ID,
+                photo=order["photo_id"],
+                caption=f"📸 Фото · Заказ #{oid}"
             )
-        )
-    else:
-        await update.message.reply_text(
-            "❌ Заказ отменён.",
-            reply_markup=ReplyKeyboardMarkup(
-                [["🖤 Новый заказ"]],
-                resize_keyboard=True
-            )
-        )
+    except Exception as e:
+        print(f"Ошибка отправки админу: {e}")
 
     context.user_data.clear()
     return WELCOME
 
-
-async def myorder_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.message.from_user
-    o = find_last_order_for_user(user.id)
+# ═══════════════════════════════════════
+#  МОЙ ЗАКАЗ
+# ═══════════════════════════════════════
+async def show_my_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    o = db_last_for_user(update.message.from_user.id)
     if not o:
         await update.message.reply_text(
-            "❌ У тебя ещё нет заказов.",
-            reply_markup=ReplyKeyboardMarkup([["🖤 Новый заказ"]], resize_keyboard=True)
+            "📭  У тебя пока нет заказов.\n\nОформи первый! 👇",
+            reply_markup=main_kb()
         )
         return WELCOME
-
-    has_photo = "✅" if o['photo_id'] else "❌"
-    athlete_line = f"👤 Боец: {o['athlete']}\n" if o['athlete'] not in ['—', ''] else ""
-    extra_line   = f"💰 Доп: +{o['extra']} сом\n" if o['extra'] else ""
-
     await update.message.reply_text(
-        header(f"ЗАКАЗ #{o['id']}") +
-        f"👕 {o['product']} · {o['size']}\n"
-        f"📌 Тип: {o['print_type']}\n"
-        f"{athlete_line}"
-        f"🖼 Фото: {has_photo}\n"
-        f"✍️ Надпись: {o['print_text']}\n"
-        f"☎️ Тел: {o['phone']}\n\n"
-        f"📊 ИТОГО: {o['total']} сом\n",
-        reply_markup=ReplyKeyboardMarkup([["✏️ Изменить"], ["🖤 Новый заказ"]], resize_keyboard=True)
+        fmt_order(o),
+        reply_markup=kb(["✏️ Изменить заказ"], ["🛍 Оформить заказ"], ["🏠 Меню"])
     )
     return WELCOME
 
-
+# ═══════════════════════════════════════
+#  РЕДАКТИРОВАНИЕ
+# ═══════════════════════════════════════
 async def edit_entry(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.message.from_user
-    o = find_last_order_for_user(user.id)
+    o = db_last_for_user(update.message.from_user.id)
     if not o:
-        await update.message.reply_text(
-            "❌ Нет заказов для редактирования.",
-            reply_markup=ReplyKeyboardMarkup([["🖤 Новый заказ"]], resize_keyboard=True)
-        )
+        await update.message.reply_text("❌  Нет заказов для изменения.", reply_markup=main_kb())
         return WELCOME
-
-    context.user_data['edit_order_id'] = o['id']
+    context.user_data["edit_oid"] = o["id"]
     await update.message.reply_text(
-        header(f"ИЗМЕНИТЬ ЗАКАЗ #{o['id']}") +
-        "Что менять?",
-        reply_markup=ReplyKeyboardMarkup(
-            [["Размер"], ["Надпись"], ["Телефон"], ["◀️ Назад"]],
-            resize_keyboard=True
+        f"✏️  ИЗМЕНИТЬ ЗАКАЗ #{o['id']}\n"
+        "━━━━━━━━━━━━━━━━━━━━\n\n"
+        "Что хочешь изменить?",
+        reply_markup=kb(
+            ["📐 Размер", "✍️ Надпись"],
+            ["📱 Телефон"],
+            ["⬅️ Назад к заказу"],
         )
     )
     return EDIT_MENU
 
-
-async def edit_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text
-    
-    if text == "◀️ Назад":
-        return await welcome_handler(update, context)
-    
-    if text == "Размер":
+async def edit_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    t = update.message.text
+    if t == "⬅️ Назад к заказу":
+        return await show_my_order(update, context)
+    if t == "📐 Размер":
         await update.message.reply_text(
-            "Новый размер:",
-            reply_markup=ReplyKeyboardMarkup([["S","M","L"],["XL","XXL"],["◀️ Назад"]], resize_keyboard=True)
+            "Выбери новый размер:",
+            reply_markup=kb(["S","M","L"], ["XL","XXL"], ["⬅️ Назад"])
         )
         return EDIT_SIZE
-    if text == "Надпись":
+    if t == "✍️ Надпись":
         await update.message.reply_text(
-            "Новая надпись (или напиши: нет):",
-            reply_markup=ReplyKeyboardRemove()
+            "Напиши новую надпись\n(нет — чтобы убрать):",
+            reply_markup=kb(["⬅️ Назад"])
         )
         return EDIT_TEXT
-    if text == "Телефон":
+    if t == "📱 Телефон":
         await update.message.reply_text(
-            "Новый номер телефона:",
-            reply_markup=ReplyKeyboardRemove()
+            "Введи новый номер:\nФормат: +992XXXXXXXXX",
+            reply_markup=kb(["⬅️ Назад"])
         )
         return EDIT_PHONE
-    
     return EDIT_MENU
 
-
 async def edit_size(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    size = update.message.text
-    
-    if size == "◀️ Назад":
+    t = update.message.text
+    if t == "⬅️ Назад":
         return await edit_entry(update, context)
-    
-    if size not in ["S", "M", "L", "XL", "XXL"]:
-        await update.message.reply_text("Выбери размер из кнопок 👇")
+    if t not in SIZES:
+        await update.message.reply_text("Выбери из кнопок 👇")
         return EDIT_SIZE
-
-    oid = context.user_data.get('edit_order_id')
-    for o in orders:
-        if o['id'] == oid:
-            old_size = o['size']
-            o['size'] = size
-            await notify_admin_change(context, oid, f"Размер: {old_size} → {size}")
-            break
-
-    await update.message.reply_text(
-        "✅ Размер изменён!",
-        reply_markup=ReplyKeyboardMarkup([["📦 Мой заказ"], ["🖤 Новый заказ"]], resize_keyboard=True)
-    )
+    oid = context.user_data.get("edit_oid")
+    o   = db_get(oid)
+    old = o["size"] if o else "?"
+    db_update(oid, size=t)
+    await _notify_change(context, oid, f"Размер: {old} → {t}")
+    await update.message.reply_text("✅  Размер изменён!", reply_markup=main_kb())
     return WELCOME
-
 
 async def edit_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text.strip()
-    new_text = "—" if text.lower() == "нет" else text
-    oid = context.user_data.get('edit_order_id')
-    
-    for o in orders:
-        if o['id'] == oid:
-            old_text = o['print_text']
-            o['print_text'] = new_text
-            await notify_admin_change(context, oid, f"Надпись: '{old_text}' → '{new_text}'")
-            break
-
-    await update.message.reply_text(
-        "✅ Надпись изменена!",
-        reply_markup=ReplyKeyboardMarkup([["📦 Мой заказ"], ["🖤 Новый заказ"]], resize_keyboard=True)
-    )
+    t = update.message.text.strip()
+    if t == "⬅️ Назад":
+        return await edit_entry(update, context)
+    new_text = "—" if t.lower() == "нет" else t
+    oid = context.user_data.get("edit_oid")
+    o   = db_get(oid)
+    old = o["print_text"] if o else "?"
+    db_update(oid, print_text=new_text)
+    await _notify_change(context, oid, f"Надпись: «{old}» → «{new_text}»")
+    await update.message.reply_text("✅  Надпись изменена!", reply_markup=main_kb())
     return WELCOME
-
 
 async def edit_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    phone = update.message.text.strip()
-    digits = phone.replace("+", "").replace(" ", "").replace("-", "")
-    
+    t = update.message.text.strip()
+    if t == "⬅️ Назад":
+        return await edit_entry(update, context)
+    digits = t.replace("+","").replace(" ","").replace("-","")
     if not digits.isdigit() or len(digits) < 7:
-        await update.message.reply_text("❌ Номер неверный.")
+        await update.message.reply_text("⚠️  Неверный формат. Пример: +992901234567")
         return EDIT_PHONE
-
-    oid = context.user_data.get('edit_order_id')
-    for o in orders:
-        if o['id'] == oid:
-            old_phone = o['phone']
-            o['phone'] = phone
-            user_id = str(o['user_id'])
-            user_phones[user_id] = phone
-            save_user_phones(user_phones)
-            await notify_admin_change(context, oid, f"Телефон: {old_phone} → {phone}")
-            break
-
-    await update.message.reply_text(
-        "✅ Телефон изменён!",
-        reply_markup=ReplyKeyboardMarkup([["📦 Мой заказ"], ["🖤 Новый заказ"]], resize_keyboard=True)
-    )
+    oid = context.user_data.get("edit_oid")
+    o   = db_get(oid)
+    old = o["phone"] if o else "?"
+    db_update(oid, phone=t)
+    await _notify_change(context, oid, f"Телефон: {old} → {t}")
+    await update.message.reply_text("✅  Телефон изменён!", reply_markup=main_kb())
     return WELCOME
 
-
-async def notify_admin_change(context: ContextTypes.DEFAULT_TYPE, order_id: int, note: str):
+async def _notify_change(context, oid, note):
+    o = db_get(oid)
+    if not o:
+        return
     try:
-        o = next((x for x in orders if x['id'] == order_id), None)
-        if not o:
-            return
-        msg = (
-            f"✏️ ИЗМЕНЕНИЕ ЗАКАЗА #{o['id']}\n"
-            f"{'-' * 40}\n"
-            f"📝 {note}\n\n"
-            f"👕 {o['product']} · {o['size']}\n"
-            f"✍️ Надпись: {o['print_text']}\n"
-            f"☎️ Тел: {o['phone']}\n"
-            f"👤 Клиент: {o['name']} tg://user?id={o['user_id']}"
+        await context.bot.send_message(
+            chat_id=ADMIN_ID,
+            text=(f"✏️  ИЗМЕНЕНИЕ · Заказ #{oid}\n"
+                  f"━━━━━━━━━━━━━━━━━━━━\n"
+                  f"📝  {note}\n\n"
+                  f"👤  {o.get('name','—')}  {o.get('username','')}\n"
+                  f"📱  {o.get('phone','—')}"),
+            reply_markup=admin_kb(oid, o.get("status","new"), o.get("user_id",0))
         )
-        await context.bot.send_message(chat_id=ADMIN_ID, text=msg)
     except Exception as e:
-        print(f"Ошибка уведомления: {e}")
+        print(f"Ошибка: {e}")
 
+# ═══════════════════════════════════════
+#  CALLBACK — СМЕНА СТАТУСА
+# ═══════════════════════════════════════
+async def status_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    if q.from_user.id != ADMIN_ID:
+        await q.answer("⛔ Нет доступа", show_alert=True)
+        return
+    _, oid_str, new_status = q.data.split(":")
+    oid = int(oid_str)
+    db_update(oid, status=new_status)
+    o = db_get(oid)
+    if not o:
+        await q.edit_message_text("⚠️ Заказ не найден")
+        return
+    await q.edit_message_text(
+        text=fmt_order(o, admin=True),
+        reply_markup=admin_kb(oid, new_status, o.get("user_id", 0))
+    )
+    msg = STATUS_NOTIFY.get(new_status)
+    if msg and o.get("user_id"):
+        try:
+            await context.bot.send_message(
+                chat_id=o["user_id"],
+                text=msg.replace("{id}", str(oid))
+            )
+        except Exception as e:
+            print(f"Ошибка уведомления: {e}")
 
+# ═══════════════════════════════════════
+#  КОМАНДЫ АДМИНА
+# ═══════════════════════════════════════
 async def admin_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.from_user.id != ADMIN_ID:
         return
+    args   = context.args
+    orders = db_all()
     if not orders:
         await update.message.reply_text("📭 Заказов пока нет.")
         return
-
-    msg = f"📊 ПАНЕЛЬ АДМИНИСТРАТОРА\n{'-' * 50}\n\n"
-    msg += f"Всего заказов: {len(orders)}\n\n"
-    
+    counts = {}
     for o in orders:
-        has_photo    = "✅" if o['photo_id'] else "❌"
-        athlete_line = f"👤 Боец: {o['athlete']}\n" if o['athlete'] not in ['—', ''] else ""
-        extra_line   = f"💰 Доп: +{o['extra']} сом\n" if o['extra'] else ""
-        
-        msg += (
-            f"🔹 ЗАКАЗ #{o['id']}\n"
-            f"👤 {o['name']} {o['username']}\n"
-            f"☎️ {o['phone']}\n"
-            f"👕 {o['product']} · {o['size']}\n"
-            f"📌 Тип: {o['print_type']}\n"
-            f"{athlete_line}"
-            f"✍️ Надпись: {o['print_text']}\n"
-            f"🖼 Фото: {has_photo}\n"
-            f"💰 Сумма: {o['price']} сом\n"
-            f"{extra_line}"
-            f"📊 ИТОГО: {o['total']} сом\n"
-            f"{'-' * 50}\n\n"
+        s = o.get("status","new")
+        counts[s] = counts.get(s,0) + 1
+    stat = "\n".join(f"  {ORDER_STATUSES.get(s,s)}: {c}" for s,c in counts.items())
+    await update.message.reply_text(
+        f"📊  ПАНЕЛЬ ЗАКАЗОВ\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"Всего: {len(orders)}\n\n{stat}\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"Фильтр: /admin new · confirmed · production · ready"
+    )
+    flt  = args[0] if args else None
+    show = [o for o in orders if o.get("status")==flt] if flt else orders
+    for o in reversed(show[-10:]):
+        await update.message.reply_text(
+            fmt_order(o, admin=True),
+            reply_markup=admin_kb(o["id"], o.get("status","new"), o.get("user_id",0))
         )
 
-    for i in range(0, len(msg), 4000):
-        await update.message.reply_text(msg[i:i+4000])
+async def order_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.from_user.id != ADMIN_ID:
+        return
+    args = context.args
+    if not args or not args[0].isdigit():
+        await update.message.reply_text("Использование: /order <номер>")
+        return
+    o = db_get(int(args[0]))
+    if not o:
+        await update.message.reply_text(f"⚠️ Заказ #{args[0]} не найден.")
+        return
+    await update.message.reply_text(
+        fmt_order(o, admin=True),
+        reply_markup=admin_kb(o["id"], o.get("status","new"), o.get("user_id",0))
+    )
+    if o.get("photo_id"):
+        await update.message.reply_photo(
+            photo=o["photo_id"],
+            caption=f"📸 Фото · Заказ #{o['id']}"
+        )
 
-
+# ═══════════════════════════════════════
+#  ЗАПУСК
+# ═══════════════════════════════════════
 app = Application.builder().token(BOT_TOKEN).build()
 
-conv_handler = ConversationHandler(
-    entry_points=[CommandHandler('start', start), MessageHandler(filters.TEXT, welcome_handler)],
+conv = ConversationHandler(
+    entry_points=[
+        CommandHandler("start", start),
+        MessageHandler(filters.TEXT & ~filters.COMMAND, start),
+    ],
     states={
-        WELCOME:            [MessageHandler(filters.TEXT & ~filters.COMMAND, welcome_handler)],
-        PRODUCT:            [MessageHandler(filters.TEXT & ~filters.COMMAND, choose_product)],
-        SIZE:               [MessageHandler(filters.TEXT & ~filters.COMMAND, choose_size)],
-        PRINT_TYPE:         [MessageHandler(filters.TEXT & ~filters.COMMAND, choose_print_type)],
-        FIGHTER_CHOICE:     [MessageHandler(filters.TEXT & ~filters.COMMAND, fighter_choice)],
-        CUSTOM_FIGHTER_NAME:[MessageHandler(filters.TEXT & ~filters.COMMAND, custom_fighter_name)],
-        QUOTE_CHOICE:       [MessageHandler(filters.TEXT & ~filters.COMMAND, quote_choice)],
-        CUSTOM_TEXT:        [MessageHandler(filters.TEXT & ~filters.COMMAND, custom_text)],
-        PRINT_PHOTO:        [MessageHandler(filters.PHOTO | (filters.TEXT & ~filters.COMMAND), get_print_photo)],
-        PRINT_TEXT:         [MessageHandler(filters.TEXT & ~filters.COMMAND, get_print_text)],
-        PHONE:              [MessageHandler(filters.TEXT & ~filters.COMMAND, get_phone)],
-        CONFIRM:            [MessageHandler(filters.TEXT & ~filters.COMMAND, confirm_order)],
-        EDIT_MENU:          [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_choice)],
-        EDIT_SIZE:          [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_size)],
-        EDIT_TEXT:          [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_text)],
-        EDIT_PHONE:         [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_phone)],
-        EDIT_CONFIRM:       [],
+        WELCOME:             [MessageHandler(filters.TEXT & ~filters.COMMAND, welcome_handler)],
+        PRODUCT:             [MessageHandler(filters.TEXT & ~filters.COMMAND, choose_product)],
+        SIZE:                [MessageHandler(filters.TEXT & ~filters.COMMAND, choose_size)],
+        PRINT_TYPE:          [MessageHandler(filters.TEXT & ~filters.COMMAND, choose_print_type)],
+        FIGHTER_CHOICE:      [MessageHandler(filters.TEXT & ~filters.COMMAND, fighter_choice)],
+        CUSTOM_FIGHTER_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, custom_fighter_name)],
+        QUOTE_CHOICE:        [MessageHandler(filters.TEXT & ~filters.COMMAND, quote_choice)],
+        CUSTOM_TEXT:         [MessageHandler(filters.TEXT & ~filters.COMMAND, custom_text)],
+        PRINT_PHOTO:         [MessageHandler(filters.PHOTO | (filters.TEXT & ~filters.COMMAND), get_print_photo)],
+        PRINT_TEXT:          [MessageHandler(filters.TEXT & ~filters.COMMAND, get_print_text)],
+        PHONE:               [MessageHandler(filters.TEXT & ~filters.COMMAND, get_phone)],
+        CONFIRM:             [MessageHandler(filters.TEXT & ~filters.COMMAND, confirm_order)],
+        EDIT_MENU:           [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_menu_handler)],
+        EDIT_SIZE:           [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_size)],
+        EDIT_TEXT:           [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_text)],
+        EDIT_PHONE:          [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_phone)],
     },
-    fallbacks=[CommandHandler('start', start)]
+    fallbacks=[CommandHandler("start", start)],
+    allow_reentry=True,
+    per_user=True,
+    per_chat=True,
 )
 
-app.add_handler(conv_handler)
-app.add_handler(CommandHandler('admin', admin_cmd))
-app.add_handler(CommandHandler('myorder', myorder_command))
-app.add_handler(CommandHandler('edit', edit_entry))
+app.add_handler(conv)
+app.add_handler(CallbackQueryHandler(status_callback, pattern=r"^s:\d+:\w+$"))
+app.add_handler(CommandHandler("admin", admin_cmd))
+app.add_handler(CommandHandler("order", order_cmd))
 
 print("🖤 PATHA бот запущен!")
 app.run_polling()
