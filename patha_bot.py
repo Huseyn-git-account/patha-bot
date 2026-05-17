@@ -32,9 +32,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-BOT_TOKEN   = "8838090259:AAFMff5XZkaJgNQ3Q-_Akv1aVwwHbPUXhcw"
+BOT_TOKEN   = os.getenv("BOT_TOKEN", "8838090259:AAFMff5XZkaJgNQ3Q-_Akv1aVwwHbPUXhcw")
 ADMIN_ID    = 6598665549
 ORDERS_FILE = "patha_orders.json"
+WEBHOOK_URL = os.getenv("WEBHOOK_URL", "https://worker-production-1270.up.railway.app")
 
 PRICES: dict[str, int] = {
     "👕 Футболка": 150,
@@ -500,16 +501,9 @@ async def confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     )
 
     try:
-        await context.bot.send_message(
-            chat_id=ADMIN_ID,
-            text=fmt_order(order, admin=True),
-        )
+        await context.bot.send_message(chat_id=ADMIN_ID, text=fmt_order(order, admin=True))
         if order.get("photo_id"):
-            await context.bot.send_photo(
-                chat_id=ADMIN_ID,
-                photo=order["photo_id"],
-                caption=f"📸  фото · заказ #{oid}",
-            )
+            await context.bot.send_photo(chat_id=ADMIN_ID, photo=order["photo_id"], caption=f"📸  фото · заказ #{oid}")
     except TelegramError as exc:
         logger.error("Ошибка отправки админу: %s", exc)
 
@@ -521,10 +515,7 @@ async def show_my_order(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     if not o:
         await update.message.reply_text("📭  Заказов пока нет.\n\nОформи первый! 👇", reply_markup=main_kb())
         return WELCOME
-    await update.message.reply_text(
-        fmt_order(o),
-        reply_markup=kb(["✏️ Изменить заказ"], ["🛍 Новый заказ"], ["🏠 Меню"]),
-    )
+    await update.message.reply_text(fmt_order(o), reply_markup=kb(["✏️ Изменить заказ"], ["🛍 Новый заказ"], ["🏠 Меню"]))
     return WELCOME
 
 async def edit_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -533,16 +524,10 @@ async def edit_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         await update.message.reply_text("❌  Нет заказов для изменения.", reply_markup=main_kb())
         return WELCOME
     if o.get("status") in ("delivered", "cancelled"):
-        await update.message.reply_text(
-            f"⚠️  Заказ #{o['id']} нельзя изменить.\nСтатус: {ORDER_STATUSES.get(o['status'])}",
-            reply_markup=main_kb(),
-        )
+        await update.message.reply_text(f"⚠️  Заказ #{o['id']} нельзя изменить.\nСтатус: {ORDER_STATUSES.get(o['status'])}", reply_markup=main_kb())
         return WELCOME
     context.user_data["edit_oid"] = o["id"]
-    await update.message.reply_text(
-        f"✏️  Заказ #{o['id']}\n\nЧто меняем?",
-        reply_markup=kb(["📐 Размер", "✍️ Надпись"], ["📱 Телефон"], ["⬅️ К заказу"]),
-    )
+    await update.message.reply_text(f"✏️  Заказ #{o['id']}\n\nЧто меняем?", reply_markup=kb(["📐 Размер", "✍️ Надпись"], ["📱 Телефон"], ["⬅️ К заказу"]))
     return EDIT_MENU
 
 async def edit_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -696,7 +681,14 @@ def main() -> None:
     app.add_handler(CommandHandler("order", order_cmd))
 
     logger.info("🖤  PATHA бот v4.0 запущен!")
-    app.run_polling(drop_pending_updates=True)
+    
+    PORT = int(os.environ.get("PORT", 8443))
+    app.run_webhook(
+        listen="0.0.0.0",
+        port=PORT,
+        url_path=BOT_TOKEN,
+        webhook_url=f"{WEBHOOK_URL}/{BOT_TOKEN}",
+    )
 
 if __name__ == "__main__":
     main()
