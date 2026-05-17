@@ -36,7 +36,8 @@ logger = logging.getLogger(__name__)
 # ══════════════════════════════════════
 #  КОНФИГ
 # ══════════════════════════════════════
-BOT_TOKEN   = "8838090259:AAFMff5XZkaJgNQ3Q-_Akv1aVwwHbPUXhcw"
+# ИСПРАВЛЕНИЕ: токен из переменной окружения, а не хардкод
+BOT_TOKEN   = os.environ.get("BOT_TOKEN", "")
 ADMIN_ID    = 6598665549
 ORDERS_FILE = "patha_orders.json"
 
@@ -97,6 +98,7 @@ ORDER_STATUSES: dict[str, str] = {
     "cancelled":  "❌ Отменён",
 }
 
+# ИСПРАВЛЕНИЕ: все \\n заменены на \n (реальные переносы строк)
 STATUS_NOTIFY: dict[str, str] = {
     "confirmed": (
         "✅ Заказ принят!\n\n"
@@ -231,26 +233,14 @@ def main_kb() -> ReplyKeyboardMarkup:
     )
 
 
-# ══════════════════════════════════════
-#  ДИЗАЙН СООБЩЕНИЙ — МОБИЛЬНЫЙ СТИЛЬ
-#  Принципы топ-ботов:
-#  • короткие строки (помещаются на экран телефона)
-#  • крупные эмодзи как иконки
-#  • чёткие разделители
-#  • прогресс через точки •○○ (не ASCII-рамки)
-#  • минимум текста — максимум ясности
-# ══════════════════════════════════════
-
 STEPS = ["", "товар", "размер", "принт", "детали", "надпись", "телефон"]
 
 def step_header(n: int) -> str:
-    """Красивый заголовок шага — стиль лучших shop-ботов."""
     dots = "●" * n + "○" * (6 - n)
     return f"[ {dots} ]  {n} из 6"
 
 
 def fmt_order(o: dict, *, admin: bool = False) -> str:
-    """Карточка заказа — чистый мобильный дизайн."""
     extra   = o.get("extra", 0)
     total   = o.get("price", 0) + extra
     photo   = "✅" if o.get("photo_id") else "❌"
@@ -293,6 +283,7 @@ def fmt_order(o: dict, *, admin: bool = False) -> str:
             f"tg://user?id={o.get('user_id', '')}",
         ]
 
+    # ИСПРАВЛЕНИЕ: "\n".join вместо "\\n".join
     return "\n".join(lines)
 
 
@@ -330,6 +321,7 @@ def admin_kb(oid: int, status: str, user_id: int) -> InlineKeyboardMarkup:
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data.clear()
+    # ИСПРАВЛЕНИЕ: \n вместо \\n везде в reply_text
     await update.message.reply_text(
         "🖤  P A T H A\n"
         "Именной принт · Душанбе\n\n"
@@ -371,7 +363,11 @@ async def welcome_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if t == "📦 Мой заказ":
         return await show_my_order(update, context)
 
-    if t in ("🛍 Оформить заказ", "🏠 Меню"):
+    # ИСПРАВЛЕНИЕ: добавлена обработка кнопки «✏️ Изменить заказ»
+    if t == "✏️ Изменить заказ":
+        return await edit_entry(update, context)
+
+    if t in ("🛍 Оформить заказ", "🏠 Меню", "🛍 Новый заказ"):
         return await ask_product(update, context)
 
     await update.message.reply_text(
@@ -617,8 +613,13 @@ async def ask_print_text(
 
 async def get_print_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     t = update.message.text.strip()
-    if t == "⬅️ Назад":  return await ask_photo(update, context)
     if t == "🏠 Меню":   return await start(update, context)
+    # ИСПРАВЛЕНИЕ: навигация «Назад» зависит от типа принта
+    if t == "⬅️ Назад":
+        pt = context.user_data.get("print_type", "")
+        if pt == "✍️ Только надпись":
+            return await ask_print_type(update, context)
+        return await ask_photo(update, context)
     context.user_data["print_text"] = "—" if t.lower() == "нет" else t
     return await ask_phone(update, context)
 
@@ -1050,44 +1051,47 @@ async def order_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 # ══════════════════════════════════════
 
 def main() -> None:
+    if not BOT_TOKEN:
+        raise RuntimeError("BOT_TOKEN не задан! Установи переменную окружения BOT_TOKEN.")
+
     app = Application.builder().token(BOT_TOKEN).build()
 
-    _cb = [CallbackQueryHandler(status_callback, pattern=r"^s:\d+:\w+$")]
-
+    # ИСПРАВЛЕНИЕ: убран дублирующий _cb внутри состояний ConversationHandler.
+    # CallbackQueryHandler для статусов работает через отдельный глобальный хендлер.
     conv = ConversationHandler(
         entry_points=[
             CommandHandler("start", start),
             MessageHandler(filters.TEXT & ~filters.COMMAND, welcome_handler),
         ],
         states={
-            WELCOME:             _cb + [MessageHandler(filters.TEXT & ~filters.COMMAND, welcome_handler)],
-            PRODUCT:             _cb + [MessageHandler(filters.TEXT & ~filters.COMMAND, choose_product)],
-            SIZE:                _cb + [MessageHandler(filters.TEXT & ~filters.COMMAND, choose_size)],
-            PRINT_TYPE:          _cb + [MessageHandler(filters.TEXT & ~filters.COMMAND, choose_print_type)],
-            FIGHTER_CHOICE:      _cb + [MessageHandler(filters.TEXT & ~filters.COMMAND, fighter_choice)],
-            CUSTOM_FIGHTER_NAME: _cb + [MessageHandler(filters.TEXT & ~filters.COMMAND, custom_fighter_name)],
-            QUOTE_CHOICE:        _cb + [MessageHandler(filters.TEXT & ~filters.COMMAND, quote_choice)],
-            CUSTOM_TEXT:         _cb + [MessageHandler(filters.TEXT & ~filters.COMMAND, custom_text)],
-            PRINT_PHOTO:         _cb + [MessageHandler(filters.PHOTO | (filters.TEXT & ~filters.COMMAND), get_print_photo)],
-            PRINT_TEXT:          _cb + [MessageHandler(filters.TEXT & ~filters.COMMAND, get_print_text)],
-            PHONE:               _cb + [MessageHandler(filters.TEXT & ~filters.COMMAND, get_phone)],
-            CONFIRM:             _cb + [MessageHandler(filters.TEXT & ~filters.COMMAND, confirm_order)],
-            EDIT_MENU:           _cb + [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_menu_handler)],
-            EDIT_SIZE:           _cb + [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_size)],
-            EDIT_TEXT:           _cb + [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_text)],
-            EDIT_PHONE:          _cb + [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_phone)],
+            WELCOME:             [MessageHandler(filters.TEXT & ~filters.COMMAND, welcome_handler)],
+            PRODUCT:             [MessageHandler(filters.TEXT & ~filters.COMMAND, choose_product)],
+            SIZE:                [MessageHandler(filters.TEXT & ~filters.COMMAND, choose_size)],
+            PRINT_TYPE:          [MessageHandler(filters.TEXT & ~filters.COMMAND, choose_print_type)],
+            FIGHTER_CHOICE:      [MessageHandler(filters.TEXT & ~filters.COMMAND, fighter_choice)],
+            CUSTOM_FIGHTER_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, custom_fighter_name)],
+            QUOTE_CHOICE:        [MessageHandler(filters.TEXT & ~filters.COMMAND, quote_choice)],
+            CUSTOM_TEXT:         [MessageHandler(filters.TEXT & ~filters.COMMAND, custom_text)],
+            PRINT_PHOTO:         [MessageHandler(filters.PHOTO | (filters.TEXT & ~filters.COMMAND), get_print_photo)],
+            PRINT_TEXT:          [MessageHandler(filters.TEXT & ~filters.COMMAND, get_print_text)],
+            PHONE:               [MessageHandler(filters.TEXT & ~filters.COMMAND, get_phone)],
+            CONFIRM:             [MessageHandler(filters.TEXT & ~filters.COMMAND, confirm_order)],
+            EDIT_MENU:           [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_menu_handler)],
+            EDIT_SIZE:           [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_size)],
+            EDIT_TEXT:           [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_text)],
+            EDIT_PHONE:          [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_phone)],
         },
         fallbacks=[
             CommandHandler("start", start),
-            CallbackQueryHandler(status_callback, pattern=r"^s:\d+:\w+$"),
         ],
         allow_reentry=True,
         per_user=True,
         per_chat=True,
     )
 
-    app.add_handler(conv)
+    # CallbackQueryHandler вне conv — обрабатывает нажатия кнопок статуса от админа
     app.add_handler(CallbackQueryHandler(status_callback, pattern=r"^s:\d+:\w+$"))
+    app.add_handler(conv)
     app.add_handler(CommandHandler("admin", admin_cmd))
     app.add_handler(CommandHandler("order", order_cmd))
 
