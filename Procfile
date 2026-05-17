@@ -1,1 +1,1 @@
-worker: python patha_bot.py
+web: python patha_bot.py
