@@ -33,7 +33,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 BOT_TOKEN   = os.getenv("BOT_TOKEN", "8838090259:AAFMff5XZkaJgNQ3Q-_Akv1aVwwHbPUXhcw")
-ADMIN_ID    = 1270534837
+ADMIN_IDS   = {6598665549, 1270534837}
 ORDERS_FILE = "patha_orders.json"
 WEBHOOK_URL = os.getenv("WEBHOOK_URL", "https://worker-production-1270.up.railway.app")
 
@@ -539,9 +539,10 @@ async def confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     )
 
     try:
-        await context.bot.send_message(chat_id=ADMIN_ID, text=fmt_order(order, admin=True))
-        if order.get("photo_id"):
-            await context.bot.send_photo(chat_id=ADMIN_ID, photo=order["photo_id"], caption=f"📸  фото · заказ #{oid}")
+        for aid in ADMIN_IDS:
+            await context.bot.send_message(chat_id=aid, text=fmt_order(order, admin=True))
+            if order.get("photo_id"):
+                await context.bot.send_photo(chat_id=aid, photo=order["photo_id"], caption=f"📸  фото · заказ #{oid}")
     except TelegramError as exc:
         logger.error("Ошибка отправки админу: %s", exc)
 
@@ -630,15 +631,16 @@ async def _notify_change(context: ContextTypes.DEFAULT_TYPE, oid: int, note: str
     o = db_get(oid)
     if not o: return
     try:
-        await context.bot.send_message(
-            chat_id=ADMIN_ID,
-            text=f"✏️  Изменение · заказ #{oid}\n\n📝  {note}\n\n👤  {o.get('name', '—')}  {o.get('username', '')}\n📱  {o.get('phone', '—')}",
-        )
+        for aid in ADMIN_IDS:
+            await context.bot.send_message(
+                chat_id=aid,
+                text=f"✏️  Изменение · заказ #{oid}\n\n📝  {note}\n\n👤  {o.get('name', '—')}  {o.get('username', '')}\n📱  {o.get('phone', '—')}",
+            )
     except TelegramError as exc:
         logger.error("Ошибка уведомления: %s", exc)
 
 async def admin_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.message.from_user.id != ADMIN_ID: return
+    if update.message.from_user.id not in ADMIN_IDS: return
     args   = context.args or []
     orders = db_all()
     if not orders:
@@ -667,7 +669,7 @@ async def admin_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             logger.error("Ошибка отправки заказа #%s: %s", o["id"], exc)
 
 async def order_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.message.from_user.id != ADMIN_ID: return
+    if update.message.from_user.id not in ADMIN_IDS: return
     args = context.args or []
     if not args or not args[0].isdigit():
         await update.message.reply_text("Использование: /order <номер>")
