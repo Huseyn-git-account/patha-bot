@@ -33,7 +33,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 BOT_TOKEN   = os.getenv("BOT_TOKEN", "8838090259:AAFMff5XZkaJgNQ3Q-_Akv1aVwwHbPUXhcw")
-ADMIN_ID    = 6598665549
+ADMIN_ID    = 1270534837
 ORDERS_FILE = "patha_orders.json"
 WEBHOOK_URL = os.getenv("WEBHOOK_URL", "https://worker-production-1270.up.railway.app")
 
