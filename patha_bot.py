@@ -223,16 +223,54 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 async def welcome_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     t = update.message.text
     if t == "📸 Примеры":
+        # ── Замени file_id на реальные file_id своих фото ──
+        # Как получить file_id: отправь фото боту @RawDataBot
+        # или используй /getfile через Telegram Bot API
+        WORK_PHOTOS: list[dict] = [
+            {"file_id": "AgACAgIAAxkBAAFJ7lZqCqx-5lI4sMfDhsa04rOyK07D1wACjxlrGx7hWUirIz5D7BWbzgEAAwIAA3cAAzsE", "caption": "🖤 PATHA · работа 1"},
+            {"file_id": "AgACAgIAAxkBAAFJ7lpqCqyguk63Poivuc_f-gQw7RUtwwACkBlrGx7hWUjf96ZAzVCqQQEAAwIAA3cAAzsE", "caption": "🖤 PATHA · работа 2"},
+            {"file_id": "AgACAgIAAxkBAAFJ7l5qCqywQzrM4ho75kRG27NFyTp-oQACixlrGx7hWUj1w8oB3C-EFgEAAwIAA3cAAzsE", "caption": "🖤 PATHA · работа 3"},
+            {"file_id": "AgACAgIAAxkBAAFJ7mJqCqy8wkthYcapCICCWyUwcSOhZgACjRlrGx7hWUhCC-_LzoCUrgEAAwIAA3cAAzsE", "caption": "🖤 PATHA · работа 4"},
+        ]
+
+        if WORK_PHOTOS:
+            # Если есть фото — отправляем медиагруппой
+            from telegram import InputMediaPhoto
+            media = [
+                InputMediaPhoto(
+                    media=p["file_id"],
+                    caption=p.get("caption", "")
+                )
+                for p in WORK_PHOTOS
+            ]
+            try:
+                await update.message.reply_media_group(media=media)
+            except Exception as exc:
+                logger.warning("Ошибка отправки фото: %s", exc)
+
         await update.message.reply_text(
-            "📸  Примеры работ\n\n🦅  Хабиб · THE EAGLE\n🍀  МакГрегор · NOTORIOUS\n"
-            "⚡  Забит · Artist of MMA\n👑  Ислам Махачев · Champion\n"
-            "👫  Парные худи с фото\n👤  Портреты на заказ\n\n📲  @patha.tj в Instagram",
+            "📸  Наши работы\n\n"
+            "🦅  Хабиб · THE EAGLE\n"
+            "🍀  МакГрегор · NOTORIOUS\n"
+            "⚡  Забит · Artist of MMA\n"
+            "👑  Ислам Махачев · Champion\n"
+            "👫  Парные худи с фото\n"
+            "👤  Портреты на заказ\n\n"
+            "📲  Больше работ в Instagram:\n"
+            "→ @patha.tj\n\n"
+            "🖤  Хочешь такой же? Жми «Оформить заказ»!",
             reply_markup=main_kb(),
         )
         return WELCOME
     if t == "📞 Контакты":
         await update.message.reply_text(
-            "📞  Контакты\n\n📸  Instagram · @patha.tj\n✈️  Telegram  · @patha_tj\n\nОформи заказ — сами свяжемся 🖤",
+            "📞  Контакты PATHA\n\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "📱  +992 90 455 1300\n"
+            "━━━━━━━━━━━━━━━━━━━━\n\n"
+            "📸  Instagram · @patha.tj\n"
+            "✈️  Telegram  · @gazabovv\n\n"
+            "Оформи заказ прямо здесь — сами свяжемся 🖤",
             reply_markup=main_kb(),
         )
         return WELCOME
