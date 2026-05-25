@@ -227,10 +227,10 @@ async def welcome_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         # Как получить file_id: отправь фото боту @RawDataBot
         # или используй /getfile через Telegram Bot API
         WORK_PHOTOS: list[dict] = [
-            {"file_id": "AgACAgIAAxkBAAFJ7wVqCrNRmAABe1ILvMG8wBMdnud54JQAAl4faxt_A1BItfOW68OWJYMBAAMCAAN5AAM7BA", "caption": "🖤 PATHA · работа 1"},
-            {"file_id": "AgACAgIAAxkBAAFJ7wZqCrNRAAHtbxooPAYwAAHMqo6rl6TBAAJfH2sbfwNQSG5AfQ5j8i4wAQADAgADeQADOwQ", "caption": "🖤 PATHA · работа 2"},
-            {"file_id": "AgACAgIAAxkBAAFJ7wdqCrNSnVEZA2mifCn-2MDXjBZ9wAACYB9rG38DUEh0M4ealiCrHgEAAwIAA3kAAzsE", "caption": "🖤 PATHA · работа 3"},
-            {"file_id": "AgACAgIAAxkBAAFJ7whqCrNRs0L6JqFMprnzeMH1rkaOmwACYR9rG38DUEgJ4Yeqtgo6nAEAAwIAA3kAAzsE", "caption": "🖤 PATHA · работа 4"},
+            {"file_id": "AgACAgIAAxkBAAFKlHJqFAghVWRIUAvNxE45WcGwT5ouuQACcxtrG5MYoUhC-WLFbqAT8wEAAwIAA3kAAzsE", "caption": "🖤 PATHA · работа 1"},
+            {"file_id": "AgACAgIAAxkBAAFKlIdqFAiuO64CuqaOTOueYzB5mVRZPQACdBtrG5MYoUiKZx8mcTk6bAEAAwIAA3kAAzsE", "caption": "🖤 PATHA · работа 2"},
+            {"file_id": "AgACAgIAAxkBAAFKlI9qFAjJGX65sXbcOWhEwGB7W47umwACdhtrG5MYoUip2zNh8izFnAEAAwIAA3kAAzsE", "caption": "🖤 PATHA · работа 3"},
+            {"file_id": "AgACAgIAAxkBAAFKlJFqFAjdytl8BxUm2HIkeQABxCv7QM4AAncbaxuTGKFILmTVTb-kR9kBAAMCAAN5AAM7BA", "caption": "🖤 PATHA · работа 4"},
         ]
 
         if WORK_PHOTOS:
