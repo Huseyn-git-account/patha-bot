@@ -268,7 +268,7 @@ async def welcome_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             "━━━━━━━━━━━━━━━━━━━━\n"
             "📱  +992 90 455 1300\n"
             "━━━━━━━━━━━━━━━━━━━━\n\n"
-            "📸  Instagram · @patha.tj\n"
+            "📸  Instagram · https://www.instagram.com/patha.tj\n"
             "✈️  Telegram  · @gazabovv\n\n"
             "Оформи заказ прямо здесь — сами свяжемся 🖤",
             reply_markup=main_kb(),
