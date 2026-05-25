@@ -257,7 +257,7 @@ async def welcome_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             "👫  Парные худи с фото\n"
             "👤  Портреты на заказ\n\n"
             "📲  Больше работ в Instagram:\n"
-            "→ @patha.tj\n\n"
+            "→ https://www.instagram.com/patha.tj\n\n"
             "🖤  Хочешь такой же? Жми «Оформить заказ»!",
             reply_markup=main_kb(),
         )
